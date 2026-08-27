@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart' hide StepState;
 import 'package:provider/provider.dart';
 
-import '../models/project.dart';
 import '../models/run_state.dart';
+import '../state/active_runs.dart';
 import '../state/run_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_button.dart';
@@ -12,55 +12,34 @@ import '../widgets/log_panel.dart';
 import '../widgets/status_badge.dart';
 
 class RunScreen extends StatefulWidget {
-  final Project project;
-  final String branch;
-  final String workflowName;
-  final String yamlSource;
-  final String artifactsPath;
-  const RunScreen({
-    super.key,
-    required this.project,
-    required this.branch,
-    required this.workflowName,
-    required this.yamlSource,
-    required this.artifactsPath,
-  });
+  final RunSession session;
+  const RunScreen({super.key, required this.session});
 
   @override
   State<RunScreen> createState() => _RunScreenState();
 }
 
 class _RunScreenState extends State<RunScreen> {
-  RunProvider? _run;
   StepState? _selectedStep;
 
-  @override
-  void initState() {
-    super.initState();
-    _run = RunProvider();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _run!.start(
-        repoPath: widget.project.localPath,
-        branch: widget.branch,
-        workflowName: widget.workflowName,
-        yamlSource: widget.yamlSource,
-        artifactsPath: widget.artifactsPath,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _run?.cancel();
-    _run?.dispose();
-    super.dispose();
-  }
-
   Future<void> _revealArtifacts() async {
-    final path = widget.artifactsPath;
+    final path = widget.session.artifactsPath;
     final dir = Directory(path);
     if (!await dir.exists()) await dir.create(recursive: true);
     await Process.start('open', [path], runInShell: false);
+  }
+
+  void _minimize() {
+    Navigator.of(context).pop();
+  }
+
+  void _closeAndRemove() {
+    context.read<ActiveRunsController>().remove(widget.session.id);
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _stop() async {
+    await context.read<ActiveRunsController>().stop(widget.session.id);
   }
 
   @override
@@ -74,7 +53,7 @@ class _RunScreenState extends State<RunScreen> {
       ),
       backgroundColor: t.surface,
       child: ChangeNotifierProvider.value(
-        value: _run!,
+        value: widget.session.provider,
         child: Consumer<RunProvider>(
           builder: (_, run, __) {
             final state = run.state;
@@ -163,20 +142,20 @@ class _RunScreenState extends State<RunScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.workflowName, style: type.section),
+                Text(widget.session.workflowName, style: type.section),
                 const SizedBox(height: 2),
                 Row(
                   children: [
                     Icon(Icons.folder_outlined,
                         size: 11, color: t.textMuted),
                     const SizedBox(width: 3),
-                    Text(widget.project.name,
+                    Text(widget.session.project.name,
                         style: type.caption
                             .copyWith(color: t.textMuted, fontSize: 11.5)),
                     const SizedBox(width: AppSpacing.sm),
                     Icon(Icons.alt_route, size: 11, color: t.textMuted),
                     const SizedBox(width: 3),
-                    Text(widget.branch,
+                    Text(widget.session.branch,
                         style: type.caption
                             .copyWith(color: t.textMuted, fontSize: 11.5)),
                   ],
@@ -193,20 +172,27 @@ class _RunScreenState extends State<RunScreen> {
             onPressed: _revealArtifacts,
           ),
           const SizedBox(width: AppSpacing.sm),
-          if (running)
-            AppButton.secondary(
+          if (running) ...[
+            AppButton.danger(
               icon: Icons.stop_circle_outlined,
-              label: 'Cancel',
+              label: 'Stop run',
               size: AppButtonSize.sm,
-              onPressed: () => _run?.cancel(),
+              onPressed: _stop,
             ),
-          const SizedBox(width: AppSpacing.sm),
-          AppButton.ghost(
-            icon: Icons.close,
-            label: 'Close',
-            size: AppButtonSize.sm,
-            onPressed: () => Navigator.of(context).pop(),
-          ),
+            const SizedBox(width: AppSpacing.sm),
+            AppButton.ghost(
+              icon: Icons.remove,
+              label: 'Minimize',
+              size: AppButtonSize.sm,
+              onPressed: _minimize,
+            ),
+          ] else
+            AppButton.ghost(
+              icon: Icons.close,
+              label: 'Close',
+              size: AppButtonSize.sm,
+              onPressed: _closeAndRemove,
+            ),
         ],
       ),
     );

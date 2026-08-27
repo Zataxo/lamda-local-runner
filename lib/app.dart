@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'models/project.dart';
 import 'screens/create_project_screen.dart';
-import 'screens/landing_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'screens/project_screen.dart';
+import 'screens/secrets_manager_screen.dart';
+import 'state/active_runs.dart';
 import 'state/projects_provider.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
+import 'widgets/minimized_run_bar.dart';
 import 'widgets/sidebar.dart';
 
 class ZataxoApp extends StatelessWidget {
@@ -20,6 +24,7 @@ class ZataxoApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => ProjectsProvider()..loadIfNeeded(),
         ),
+        ChangeNotifierProvider(create: (_) => ActiveRunsController()),
       ],
       child: Consumer<ThemeController>(
         builder: (context, controller, _) {
@@ -62,13 +67,43 @@ class _Home extends StatefulWidget {
 
 class _HomeState extends State<_Home> {
   bool _creating = false;
+  bool _showSecrets = false;
+  String? _secretsInitialProjectId;
   bool _sidebarCollapsed = false;
+
+  void _goDashboard() {
+    context.read<ProjectsProvider>().select(null);
+    setState(() {
+      _creating = false;
+      _showSecrets = false;
+    });
+  }
+
+  void _openSecrets({String? projectId}) {
+    setState(() {
+      _creating = false;
+      _showSecrets = true;
+      _secretsInitialProjectId = projectId;
+    });
+  }
+
+  void _openProject(Project p) {
+    context.read<ProjectsProvider>().select(p);
+    setState(() {
+      _creating = false;
+      _showSecrets = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = AppTheme.of(context).tokens;
     final projects = context.watch<ProjectsProvider>();
     final selected = projects.selected;
+
+    final dashboardSelected =
+        projects.loaded && !_creating && !_showSecrets && selected == null;
+    final secretsSelected = _showSecrets;
 
     Widget main;
     if (!projects.loaded) {
@@ -87,36 +122,69 @@ class _HomeState extends State<_Home> {
         onDone: () => setState(() => _creating = false),
         onCancel: () => setState(() => _creating = false),
       );
+    } else if (_showSecrets) {
+      main = SecretsManagerScreen(
+        initialProjectId: _secretsInitialProjectId,
+        onBack: _goDashboard,
+      );
     } else if (selected == null) {
-      main = LandingScreen(onCreate: () => setState(() => _creating = true));
+      main = DashboardScreen(
+        onCreate: () => setState(() => _creating = true),
+        onOpenSecrets: () => _openSecrets(),
+        onOpenProject: _openProject,
+        onQuickRun: _openProject,
+      );
     } else {
-      main = ProjectScreen(key: ValueKey(selected.id), project: selected);
+      main = ProjectScreen(
+        key: ValueKey(selected.id),
+        project: selected,
+      );
+    }
+
+    String keyFor() {
+      if (_creating) return 'create';
+      if (_showSecrets) return 'secrets';
+      if (selected == null) return 'dashboard';
+      return 'project:${selected.id}';
     }
 
     return Scaffold(
       backgroundColor: t.background,
-      body: Row(
+      body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Sidebar(
-            onCreate: () => setState(() => _creating = true),
-            collapsed: _sidebarCollapsed,
-            onToggleCollapse: () => setState(
-                () => _sidebarCollapsed = !_sidebarCollapsed),
-          ),
           Expanded(
-            child: AnimatedSwitcher(
-              duration: AppDurations.normal,
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              child: KeyedSubtree(
-                key: ValueKey(
-                  _creating ? 'create' : (selected?.id ?? 'landing'),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Sidebar(
+                  onCreate: () => setState(() {
+                    _creating = true;
+                    _showSecrets = false;
+                  }),
+                  collapsed: _sidebarCollapsed,
+                  onToggleCollapse: () => setState(
+                      () => _sidebarCollapsed = !_sidebarCollapsed),
+                  dashboardSelected: dashboardSelected,
+                  onDashboard: _goDashboard,
+                  secretsSelected: secretsSelected,
+                  onSecrets: () => _openSecrets(),
                 ),
-                child: main,
-              ),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: AppDurations.normal,
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    child: KeyedSubtree(
+                      key: ValueKey(keyFor()),
+                      child: main,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+          const MinimizedRunBar(),
         ],
       ),
     );

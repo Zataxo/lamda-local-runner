@@ -27,6 +27,11 @@ StatusColors statusColors(BuildContext context, StepStatus s) {
           t.danger, t.danger.withOpacity(0.14), t.danger);
     case StepStatus.skipped:
       return StatusColors(t.textMuted, t.surfaceMuted, t.textMuted);
+    case StepStatus.cancelled:
+      return StatusColors(
+          const Color(0xFFB68A44),
+          const Color(0x22B68A44),
+          const Color(0xFFB68A44));
   }
 }
 
@@ -42,6 +47,8 @@ String statusLabel(StepStatus s) {
       return 'Failed';
     case StepStatus.skipped:
       return 'Skipped';
+    case StepStatus.cancelled:
+      return 'Cancelled';
   }
 }
 

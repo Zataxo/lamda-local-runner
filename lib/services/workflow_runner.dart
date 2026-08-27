@@ -18,6 +18,7 @@ class WorkflowRunner {
   final String artifactsPath;
   final RunState state;
   final RunListener onUpdate;
+  final Map<String, String> secrets;
 
   Process? _current;
   bool _cancelled = false;
@@ -28,13 +29,37 @@ class WorkflowRunner {
     required String workflowName,
     required this.onUpdate,
     String? artifactsPath,
+    Map<String, String>? secrets,
   })  : artifactsPath =
             artifactsPath ?? AppPaths.artifactsPathFor(repoPath),
+        secrets = secrets ?? const {},
         state = RunState(workflowName: workflowName);
 
-  void cancel() {
+  Future<void> cancel() async {
+    if (_cancelled) return;
     _cancelled = true;
-    _current?.kill(ProcessSignal.sigterm);
+    _globalLog('Run cancelled by user.', isError: true);
+    final proc = _current;
+    if (proc == null) return;
+    try {
+      proc.kill(ProcessSignal.sigterm);
+    } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (identical(_current, proc)) {
+      try {
+        proc.kill(ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+  }
+
+  String _redact(String text) {
+    if (secrets.isEmpty) return text;
+    var out = text;
+    for (final v in secrets.values) {
+      if (v.isEmpty) continue;
+      out = out.replaceAll(v, '***');
+    }
+    return out;
   }
 
   Future<void> run(String yamlSource) async {
@@ -61,10 +86,13 @@ class WorkflowRunner {
       return;
     }
 
-    // Ensure artifacts dir.
     final artifacts = Directory(artifactsPath);
     if (!await artifacts.exists()) await artifacts.create(recursive: true);
     _globalLog('Artifacts dir: $artifactsPath');
+    if (secrets.isNotEmpty) {
+      _globalLog(
+          'Injecting ${secrets.length} secret(s) into step environments.');
+    }
 
     final jobs = parsed['jobs'];
     if (jobs is! YamlMap) {
@@ -119,12 +147,14 @@ class WorkflowRunner {
       }
 
       var jobFailed = false;
+      var jobCancelled = false;
       for (var i = 0; i < steps.length; i++) {
-        if (_cancelled) break;
-        final rawStep = steps[i];
-        if (rawStep is! YamlMap) {
-          continue;
+        if (_cancelled) {
+          jobCancelled = true;
+          break;
         }
+        final rawStep = steps[i];
+        if (rawStep is! YamlMap) continue;
         final stepName = (rawStep['name'] ?? rawStep['uses'] ?? rawStep['run'] ?? 'step ${i + 1}')
             .toString()
             .split('\n')
@@ -134,12 +164,18 @@ class WorkflowRunner {
         step.status = StepStatus.running;
         _notify();
 
-        final continueOnError =
-            (rawStep['continue-on-error'] == true || rawStep['continue-on-error'] == 'true');
+        final continueOnError = (rawStep['continue-on-error'] == true ||
+            rawStep['continue-on-error'] == 'true');
         final stepEnv = {...jobEnv, ..._readEnv(rawStep['env'])};
 
         try {
           final ok = await _runStep(rawStep, step, stepEnv);
+          if (_cancelled) {
+            step.status = StepStatus.cancelled;
+            jobCancelled = true;
+            _notify();
+            break;
+          }
           if (!ok) {
             step.status = StepStatus.failed;
             _notify();
@@ -147,15 +183,14 @@ class WorkflowRunner {
               jobFailed = true;
               break;
             }
-          } else {
-            if (step.status == StepStatus.running) {
-              step.status = StepStatus.success;
-              _notify();
-            }
+          } else if (step.status == StepStatus.running) {
+            step.status = StepStatus.success;
+            _notify();
           }
         } catch (e) {
           _stepLog(step, 'Error: $e', isError: true);
-          step.status = StepStatus.failed;
+          step.status = _cancelled ? StepStatus.cancelled : StepStatus.failed;
+          if (_cancelled) jobCancelled = true;
           if (!continueOnError) {
             jobFailed = true;
             _notify();
@@ -165,13 +200,20 @@ class WorkflowRunner {
         }
       }
 
-      job.status = jobFailed ? StepStatus.failed : StepStatus.success;
-      if (jobFailed) anyFailure = true;
+      if (jobCancelled) {
+        job.status = StepStatus.cancelled;
+      } else if (jobFailed) {
+        job.status = StepStatus.failed;
+        anyFailure = true;
+      } else {
+        job.status = StepStatus.success;
+      }
       _notify();
+      if (jobCancelled) break;
     }
 
     state.status = _cancelled
-        ? StepStatus.failed
+        ? StepStatus.cancelled
         : (anyFailure ? StepStatus.failed : StepStatus.success);
     state.finishedAt = DateTime.now();
     _notify();
@@ -185,18 +227,11 @@ class WorkflowRunner {
     final withMap = raw['with'];
 
     final workspace = repoPath;
-    final substitutions = <String, String>{
-      'github.ref_name': branch,
-      'github.workspace': workspace,
-      'github.repository': p.basename(workspace),
-    };
 
-    String subst(String s) => _expand(s, substitutions,
-        onUnknown: (expr) => _stepLog(step,
-            'Warning: unsupported expression \${{ $expr }} — left as-is.'));
+    String subst(String s) => _expand(s, env, step);
 
     if (uses != null && uses.trim().isNotEmpty) {
-      return _handleUses(subst(uses.trim()), withMap, step, workspace);
+      return _handleUses(subst(uses.trim()), withMap, step, workspace, env);
     }
 
     if (run == null || run.trim().isEmpty) {
@@ -212,12 +247,12 @@ class WorkflowRunner {
             ? workingDirectory
             : p.normalize(p.join(workspace, subst(workingDirectory)));
 
-    final fullEnv = buildEnv(workspace, extra: env);
+    final fullEnv = buildEnv(workspace, extra: {...env, ...secrets});
     return _executeShell(script, cwd: cwd, env: fullEnv, step: step);
   }
 
-  Future<bool> _handleUses(
-      String uses, dynamic withMap, StepState step, String workspace) async {
+  Future<bool> _handleUses(String uses, dynamic withMap, StepState step,
+      String workspace, Map<String, String> env) async {
     final lower = uses.toLowerCase();
 
     if (lower.startsWith('actions/checkout')) {
@@ -230,7 +265,9 @@ class WorkflowRunner {
     if (lower.contains('flutter-action') || lower.contains('setup-flutter')) {
       _stepLog(step, 'Detected flutter setup action — verifying local Flutter.');
       final ok = await _executeShell('flutter --version',
-          cwd: workspace, env: buildEnv(workspace), step: step);
+          cwd: workspace,
+          env: buildEnv(workspace, extra: {...env, ...secrets}),
+          step: step);
       return ok;
     }
 
@@ -246,7 +283,7 @@ class WorkflowRunner {
       if (!await artifactsDir.exists()) {
         await artifactsDir.create(recursive: true);
       }
-      final patterns = pathVal
+      final patterns = _expand(pathVal, env, step)
           .split('\n')
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
@@ -282,7 +319,7 @@ class WorkflowRunner {
           _stepLog(step, 'upload-artifact: error on `$pat`: $e', isError: true);
         }
       }
-      _stepLog(step, 'upload-artifact: copied $copied file(s) into _artifacts/.');
+      _stepLog(step, 'upload-artifact: copied $copied file(s) into artifacts.');
       step.status = StepStatus.success;
       return true;
     }
@@ -332,6 +369,10 @@ class WorkflowRunner {
     await errSub.cancel();
     _current = null;
 
+    if (_cancelled) {
+      _stepLog(step, 'Step cancelled (exit $code).', isError: true);
+      return false;
+    }
     if (code != 0) {
       _stepLog(step, 'Exit code: $code', isError: true);
       return false;
@@ -349,12 +390,29 @@ class WorkflowRunner {
   }
 
   static final RegExp _exprRe = RegExp(r'\$\{\{\s*([^}]+?)\s*\}\}');
-  String _expand(String s, Map<String, String> vars,
-      {void Function(String)? onUnknown}) {
+
+  String _expand(String s, Map<String, String> env, StepState? step) {
+    final workspace = repoPath;
+    final builtIns = <String, String>{
+      'github.ref_name': branch,
+      'github.workspace': workspace,
+      'github.repository': p.basename(workspace),
+    };
     return s.replaceAllMapped(_exprRe, (m) {
       final expr = m.group(1)!.trim();
-      if (vars.containsKey(expr)) return vars[expr]!;
-      onUnknown?.call(expr);
+      if (builtIns.containsKey(expr)) return builtIns[expr]!;
+      if (expr.startsWith('secrets.')) {
+        final name = expr.substring('secrets.'.length);
+        return secrets[name] ?? '';
+      }
+      if (expr.startsWith('env.')) {
+        final name = expr.substring('env.'.length);
+        return env[name] ?? Platform.environment[name] ?? '';
+      }
+      if (step != null) {
+        _stepLog(step,
+            'Warning: unsupported expression \${{ $expr }} — left as-is.');
+      }
       return m.group(0)!;
     });
   }
@@ -362,21 +420,20 @@ class WorkflowRunner {
   void _notify() => onUpdate(state);
 
   void _globalLog(String text, {bool isError = false}) {
-    state.globalLogs.add(LogLine(text, isError: isError));
+    state.globalLogs.add(LogLine(_redact(text), isError: isError));
     _notify();
   }
 
   void _jobLog(JobState job, String text, {bool isError = false}) {
-    // Attach job-level notes to a pseudo step for visibility.
     if (job.steps.isEmpty || job.steps.first.name != '(job)') {
       job.steps.insert(0, StepState(name: '(job)', status: StepStatus.running));
     }
-    job.steps.first.logs.add(LogLine(text, isError: isError));
+    job.steps.first.logs.add(LogLine(_redact(text), isError: isError));
     _notify();
   }
 
   void _stepLog(StepState step, String text, {bool isError = false}) {
-    step.logs.add(LogLine(text, isError: isError));
+    step.logs.add(LogLine(_redact(text), isError: isError));
     _notify();
   }
 }

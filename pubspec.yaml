@@ -1,7 +1,7 @@
 name: zataxo_pipeline
 description: "Local CI runner for GitHub Actions-style workflows on macOS."
-publish_to: 'none'
-version: 1.0.0+1
+publish_to: "none"
+version: 1.4.8+8
 
 environment:
   sdk: ^3.9.2
@@ -23,6 +23,7 @@ dependencies:
   file_picker: ^8.1.2
   google_fonts: ^6.2.1
   package_info_plus: ^8.0.2
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_test:

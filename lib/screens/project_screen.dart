@@ -11,11 +11,14 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../models/project.dart';
+import '../models/run_record.dart';
 import '../models/run_state.dart';
 import '../presets/workflow_presets.dart';
 import '../services/git_service.dart';
 import '../services/path_utils.dart';
 import '../services/repo_meta.dart';
+import '../services/secrets_service.dart';
+import '../state/active_runs.dart';
 import '../state/projects_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_button.dart';
@@ -23,7 +26,9 @@ import '../widgets/app_card.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/log_panel.dart';
 import '../widgets/section_header.dart';
+import 'history_view.dart';
 import 'run_screen.dart';
+import 'secrets_dialog.dart';
 
 class ProjectScreen extends StatefulWidget {
   final Project project;
@@ -44,6 +49,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
   final _switchLogs = <LogLine>[];
   CommitInfo? _branchCommit;
   final _git = GitService();
+  final _secretsService = SecretsService();
+  final GlobalKey<HistoryViewState> _historyKey = GlobalKey();
+  int _rightTab = 0; // 0 = git, 1 = history
+
+  ActiveRunsController? _activeRunsSubscribed;
+  int _prevRunningCountForProject = 0;
 
   @override
   void initState() {
@@ -51,6 +62,34 @@ class _ProjectScreenState extends State<ProjectScreen> {
     _code = CodeController(text: '', language: yaml);
     _code!.addListener(_onCodeChanged);
     _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = context.read<ActiveRunsController>();
+    if (_activeRunsSubscribed != active) {
+      _activeRunsSubscribed?.removeListener(_onActiveRunsChanged);
+      active.addListener(_onActiveRunsChanged);
+      _activeRunsSubscribed = active;
+      _prevRunningCountForProject = active
+          .forProject(widget.project.id)
+          .where((s) => s.isRunning)
+          .length;
+    }
+  }
+
+  void _onActiveRunsChanged() {
+    final active = _activeRunsSubscribed;
+    if (active == null) return;
+    final running = active
+        .forProject(widget.project.id)
+        .where((s) => s.isRunning)
+        .length;
+    if (running < _prevRunningCountForProject) {
+      _historyKey.currentState?.refresh();
+    }
+    _prevRunningCountForProject = running;
   }
 
   void _onCodeChanged() {
@@ -68,6 +107,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   @override
   void dispose() {
+    _activeRunsSubscribed?.removeListener(_onActiveRunsChanged);
     _code?.removeListener(_onCodeChanged);
     _code?.dispose();
     super.dispose();
@@ -246,21 +286,61 @@ class _ProjectScreenState extends State<ProjectScreen> {
         );
   }
 
-  void _run() {
+  Future<void> _run() async {
     final workflowName = _selectedWorkflow != null
         ? p.basename(_selectedWorkflow!.path)
         : 'inline.yaml';
     final branch = _selectedBranch ?? 'HEAD';
-    showDialog(
+    final secrets = await _secretsService.readAll(widget.project.id);
+    if (!mounted) return;
+    final active = context.read<ActiveRunsController>();
+    final session = await active.start(
+      project: widget.project,
+      branch: branch,
+      workflowName: workflowName,
+      yamlSource: _code!.text,
+      artifactsPath: _effectiveArtifactsPath,
+      secrets: secrets,
+    );
+    await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => RunScreen(
-        project: widget.project,
-        branch: branch,
-        workflowName: workflowName,
-        yamlSource: _code!.text,
-        artifactsPath: _effectiveArtifactsPath,
-      ),
+      builder: (_) => RunScreen(session: session),
+    );
+    _historyKey.currentState?.refresh();
+  }
+
+  Future<void> _rerun(RunRecord record) async {
+    if (record.branch != _selectedBranch) {
+      await _onBranchChanged(record.branch);
+    }
+    setState(() {
+      _selectedWorkflow = null;
+      _code!.text = record.yamlSource;
+    });
+    final secrets = await _secretsService.readAll(widget.project.id);
+    if (!mounted) return;
+    final active = context.read<ActiveRunsController>();
+    final session = await active.start(
+      project: widget.project,
+      branch: record.branch,
+      workflowName: record.workflowName,
+      yamlSource: record.yamlSource,
+      artifactsPath: _effectiveArtifactsPath,
+      secrets: secrets,
+    );
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RunScreen(session: session),
+    );
+    _historyKey.currentState?.refresh();
+  }
+
+  void _openSecrets() {
+    showDialog(
+      context: context,
+      builder: (_) => SecretsDialog(project: widget.project),
     );
   }
 
@@ -278,6 +358,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
             project: proj,
             onRemove: () => _confirmRemove(context, proj),
             onInfo: _showRepoInfo,
+            onSecrets: _openSecrets,
             onRun: (_code == null || _code!.text.trim().isEmpty) ? null : _run,
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -423,12 +504,31 @@ class _ProjectScreenState extends State<ProjectScreen> {
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   flex: 2,
-                  child: LogPanel(
-                    lines: _switchLogs,
-                    title: 'GIT OUTPUT',
-                    icon: Icons.polyline_outlined,
-                    subtitle:
-                        _switching ? 'switching branch…' : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _RightPaneTabs(
+                        current: _rightTab,
+                        onChanged: (i) => setState(() => _rightTab = i),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Expanded(
+                        child: _rightTab == 0
+                            ? LogPanel(
+                                lines: _switchLogs,
+                                title: 'GIT OUTPUT',
+                                icon: Icons.polyline_outlined,
+                                subtitle: _switching
+                                    ? 'switching branch…'
+                                    : null,
+                              )
+                            : HistoryView(
+                                key: _historyKey,
+                                projectId: widget.project.id,
+                                onRerun: _rerun,
+                              ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -444,11 +544,13 @@ class _Header extends StatelessWidget {
   final Project project;
   final VoidCallback onRemove;
   final VoidCallback onInfo;
+  final VoidCallback onSecrets;
   final VoidCallback? onRun;
   const _Header({
     required this.project,
     required this.onRemove,
     required this.onInfo,
+    required this.onSecrets,
     required this.onRun,
   });
 
@@ -502,6 +604,13 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.xs),
         AppButton.ghost(
+          icon: Icons.lock_outline,
+          label: 'Secrets',
+          size: AppButtonSize.sm,
+          onPressed: onSecrets,
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        AppButton.ghost(
           icon: Icons.delete_outline,
           label: 'Remove',
           size: AppButtonSize.sm,
@@ -514,6 +623,68 @@ class _Header extends StatelessWidget {
           onPressed: onRun,
         ),
       ],
+    );
+  }
+}
+
+class _RightPaneTabs extends StatelessWidget {
+  final int current;
+  final ValueChanged<int> onChanged;
+  const _RightPaneTabs({required this.current, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    final type = AppTheme.of(context).type;
+    Widget tab(int i, IconData icon, String label) {
+      final selected = current == i;
+      return InkWell(
+        borderRadius: AppRadius.rSm,
+        onTap: () => onChanged(i),
+        child: AnimatedContainer(
+          duration: AppDurations.fast,
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? t.surface : Colors.transparent,
+            borderRadius: AppRadius.rSm,
+            border: selected ? Border.all(color: t.border) : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon,
+                  size: 13,
+                  color: selected ? t.textPrimary : t.textSecondary),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: type.caption.copyWith(
+                    color: selected ? t.textPrimary : t.textSecondary,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.w500,
+                    fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: t.surfaceMuted,
+        borderRadius: AppRadius.rMd,
+        border: Border.all(color: t.border),
+      ),
+      child: Row(
+        children: [
+          tab(0, Icons.polyline_outlined, 'Git output'),
+          const SizedBox(width: 2),
+          tab(1, Icons.history, 'History'),
+        ],
+      ),
     );
   }
 }

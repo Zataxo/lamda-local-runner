@@ -12,11 +12,19 @@ class Sidebar extends StatelessWidget {
   final VoidCallback onCreate;
   final bool collapsed;
   final VoidCallback onToggleCollapse;
+  final bool dashboardSelected;
+  final VoidCallback onDashboard;
+  final bool secretsSelected;
+  final VoidCallback onSecrets;
   const Sidebar({
     super.key,
     required this.onCreate,
     required this.collapsed,
     required this.onToggleCollapse,
+    required this.dashboardSelected,
+    required this.onDashboard,
+    required this.secretsSelected,
+    required this.onSecrets,
   });
 
   static const double expandedWidth = 256;
@@ -43,12 +51,20 @@ class Sidebar extends StatelessWidget {
                   key: const ValueKey('collapsed'),
                   onCreate: onCreate,
                   onToggleCollapse: onToggleCollapse,
+                  dashboardSelected: dashboardSelected,
+                  onDashboard: onDashboard,
+                  secretsSelected: secretsSelected,
+                  onSecrets: onSecrets,
                 )
               : _ExpandedSidebar(
                   key: const ValueKey('expanded'),
                   onCreate: onCreate,
                   onToggleCollapse: onToggleCollapse,
                   onConfirmRemove: (p) => _confirmRemove(context, p),
+                  dashboardSelected: dashboardSelected,
+                  onDashboard: onDashboard,
+                  secretsSelected: secretsSelected,
+                  onSecrets: onSecrets,
                 ),
         ),
       ),
@@ -406,11 +422,19 @@ class _ExpandedSidebar extends StatelessWidget {
   final VoidCallback onCreate;
   final VoidCallback onToggleCollapse;
   final Future<void> Function(Project) onConfirmRemove;
+  final bool dashboardSelected;
+  final VoidCallback onDashboard;
+  final bool secretsSelected;
+  final VoidCallback onSecrets;
   const _ExpandedSidebar({
     super.key,
     required this.onCreate,
     required this.onToggleCollapse,
     required this.onConfirmRemove,
+    required this.dashboardSelected,
+    required this.onDashboard,
+    required this.secretsSelected,
+    required this.onSecrets,
   });
 
   @override
@@ -462,7 +486,28 @@ class _ExpandedSidebar extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.md),
+        Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm),
+          child: Column(
+            children: [
+              _NavTile(
+                icon: Icons.grid_view_outlined,
+                label: 'Dashboard',
+                selected: dashboardSelected,
+                onTap: onDashboard,
+              ),
+              _NavTile(
+                icon: Icons.lock_outline,
+                label: 'Secrets',
+                selected: secretsSelected,
+                onTap: onSecrets,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: AppButton.primary(
@@ -521,10 +566,18 @@ class _ExpandedSidebar extends StatelessWidget {
 class _CollapsedSidebar extends StatelessWidget {
   final VoidCallback onCreate;
   final VoidCallback onToggleCollapse;
+  final bool dashboardSelected;
+  final VoidCallback onDashboard;
+  final bool secretsSelected;
+  final VoidCallback onSecrets;
   const _CollapsedSidebar({
     super.key,
     required this.onCreate,
     required this.onToggleCollapse,
+    required this.dashboardSelected,
+    required this.onDashboard,
+    required this.secretsSelected,
+    required this.onSecrets,
   });
 
   @override
@@ -550,6 +603,19 @@ class _CollapsedSidebar extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         _CollapseButton(collapsed: true, onPressed: onToggleCollapse),
         const SizedBox(height: AppSpacing.md),
+        _NavIcon(
+          icon: Icons.grid_view_outlined,
+          tooltip: 'Dashboard',
+          selected: dashboardSelected,
+          onTap: onDashboard,
+        ),
+        _NavIcon(
+          icon: Icons.lock_outline,
+          tooltip: 'Secrets',
+          selected: secretsSelected,
+          onTap: onSecrets,
+        ),
+        const SizedBox(height: AppSpacing.sm),
         Tooltip(
           message: 'New project',
           child: InkWell(
@@ -679,6 +745,135 @@ class _CollapsedProjectTileState extends State<_CollapsedProjectTile> {
               size: 17,
               color:
                   widget.selected ? t.accent : t.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _NavTile({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  @override
+  State<_NavTile> createState() => _NavTileState();
+}
+
+class _NavTileState extends State<_NavTile> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    final type = AppTheme.of(context).type;
+    Color bg;
+    if (widget.selected) {
+      bg = t.accentSubtle;
+    } else if (_hover) {
+      bg = t.surfaceMuted;
+    } else {
+      bg = Colors.transparent;
+    }
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: AppDurations.fast,
+          margin: const EdgeInsets.symmetric(vertical: 1),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: 7),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: AppRadius.rSm,
+          ),
+          child: Row(
+            children: [
+              Icon(widget.icon,
+                  size: 15,
+                  color: widget.selected ? t.accent : t.textSecondary),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: type.body.copyWith(
+                      fontSize: 12.5,
+                      color: widget.selected
+                          ? t.textPrimary
+                          : t.textSecondary,
+                      fontWeight: widget.selected
+                          ? FontWeight.w600
+                          : FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavIcon extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool selected;
+  final VoidCallback onTap;
+  const _NavIcon({
+    required this.icon,
+    required this.tooltip,
+    required this.selected,
+    required this.onTap,
+  });
+  @override
+  State<_NavIcon> createState() => _NavIconState();
+}
+
+class _NavIconState extends State<_NavIcon> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    Color bg;
+    if (widget.selected) {
+      bg = t.accentSubtle;
+    } else if (_hover) {
+      bg = t.surfaceMuted;
+    } else {
+      bg = Colors.transparent;
+    }
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: AppDurations.fast,
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            width: 40,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: AppRadius.rSm,
+            ),
+            child: Icon(
+              widget.icon,
+              size: 16,
+              color: widget.selected ? t.accent : t.textSecondary,
             ),
           ),
         ),
