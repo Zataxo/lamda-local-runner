@@ -4,6 +4,22 @@ import 'dart:io';
 
 import 'path_utils.dart';
 
+class CommitInfo {
+  final String hash;
+  final String author;
+  final String email;
+  final DateTime? date;
+  final String subject;
+  CommitInfo({
+    required this.hash,
+    required this.author,
+    required this.email,
+    required this.date,
+    required this.subject,
+  });
+  String get shortHash => hash.length >= 7 ? hash.substring(0, 7) : hash;
+}
+
 class GitProcResult {
   final int exitCode;
   final String stdout;
@@ -119,6 +135,37 @@ class GitService {
     void Function(String line, bool isErr)? onLine,
   }) {
     return _run(['pull', '--ff-only'], cwd: repoPath, onLine: onLine);
+  }
+
+  Future<CommitInfo?> lastCommit(String repoPath, {String? ref}) async {
+    const sep = '';
+    final args = [
+      'log',
+      '-1',
+      '--format=%H${sep}%an${sep}%ae${sep}%aI${sep}%s',
+      if (ref != null) ref,
+    ];
+    final r = await _run(args, cwd: repoPath);
+    if (!r.ok) return null;
+    final line = r.stdout.trim();
+    if (line.isEmpty) return null;
+    final parts = line.split(sep);
+    if (parts.length < 5) return null;
+    return CommitInfo(
+      hash: parts[0],
+      author: parts[1],
+      email: parts[2],
+      date: DateTime.tryParse(parts[3]),
+      subject: parts.sublist(4).join(sep),
+    );
+  }
+
+  Future<String?> remoteUrl(String repoPath) async {
+    final r = await _run(['config', '--get', 'remote.origin.url'],
+        cwd: repoPath);
+    if (!r.ok) return null;
+    final s = r.stdout.trim();
+    return s.isEmpty ? null : s;
   }
 
   String repoNameFromUrl(String url) {

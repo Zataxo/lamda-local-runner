@@ -171,10 +171,41 @@ jobs:
 ''',
 );
 
+const _fbinc = WorkflowPreset(
+  id: 'fbinc',
+  label: 'fbinc — flutter build ios --release --no-codesign',
+  subtitle: 'iOS release build without codesign',
+  yaml: '''
+name: fbinc — Build iOS (no codesign)
+on: [workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - name: Versions
+        run: |
+          flutter --version
+          dart --version
+      - name: Pub get
+        run: flutter pub get
+      - name: Build iOS (release, no codesign)
+        run: flutter build ios --release --no-codesign
+      - name: Upload .app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: build/ios/iphoneos/*.app
+''',
+);
+
 const List<WorkflowPreset> kWorkflowPresets = [
   _macos,
   _fba,
   _fbaa,
   _fbaob,
   _fbaabob,
+  _fbinc,
 ];

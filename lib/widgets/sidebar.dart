@@ -10,112 +10,47 @@ import 'app_button.dart';
 
 class Sidebar extends StatelessWidget {
   final VoidCallback onCreate;
-  const Sidebar({super.key, required this.onCreate});
+  final bool collapsed;
+  final VoidCallback onToggleCollapse;
+  const Sidebar({
+    super.key,
+    required this.onCreate,
+    required this.collapsed,
+    required this.onToggleCollapse,
+  });
+
+  static const double expandedWidth = 256;
+  static const double collapsedWidth = 64;
 
   @override
   Widget build(BuildContext context) {
     final t = AppTheme.of(context).tokens;
-    final type = AppTheme.of(context).type;
-    final projects = context.watch<ProjectsProvider>();
-
-    return Container(
-      width: 256,
+    return AnimatedContainer(
+      duration: AppDurations.normal,
+      curve: Curves.easeOutCubic,
+      width: collapsed ? collapsedWidth : expandedWidth,
       decoration: BoxDecoration(
         color: t.brightness == Brightness.dark
             ? const Color(0xFF0A0C0F)
             : const Color(0xFFF3F4F7),
         border: Border(right: BorderSide(color: t.border)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 44),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            child: Row(
-              children: [
-                Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    color: t.accent,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.bolt_outlined,
-                    size: 14,
-                    color: Colors.white,
-                  ),
+      child: ClipRect(
+        child: AnimatedSwitcher(
+          duration: AppDurations.fast,
+          child: collapsed
+              ? _CollapsedSidebar(
+                  key: const ValueKey('collapsed'),
+                  onCreate: onCreate,
+                  onToggleCollapse: onToggleCollapse,
+                )
+              : _ExpandedSidebar(
+                  key: const ValueKey('expanded'),
+                  onCreate: onCreate,
+                  onToggleCollapse: onToggleCollapse,
+                  onConfirmRemove: (p) => _confirmRemove(context, p),
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    'Zataxo Local Runner',
-                    style: type.bodyStrong.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                _ThemeToggle(),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            child: AppButton.primary(
-              icon: Icons.add,
-              label: 'New Project',
-              onPressed: onCreate,
-              expand: true,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            child: Row(
-              children: [
-                Text('PROJECTS', style: type.overline),
-                const Spacer(),
-                Text(
-                  '${projects.projects.length}',
-                  style: type.overline.copyWith(color: t.textMuted),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Expanded(
-            child: projects.projects.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Text(
-                      'No projects yet.\nCreate one to get started.',
-                      style: type.caption.copyWith(color: t.textMuted),
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                    ),
-                    itemCount: projects.projects.length,
-                    itemBuilder: (_, i) {
-                      final pr = projects.projects[i];
-                      final selected = projects.selected?.id == pr.id;
-                      return _ProjectTile(
-                        project: pr,
-                        selected: selected,
-                        onTap: () => projects.select(pr),
-                        onRemove: () => _confirmRemove(context, pr),
-                      );
-                    },
-                  ),
-          ),
-          Divider(color: t.divider, height: 1),
-          const _SidebarFooter(),
-        ],
+        ),
       ),
     );
   }
@@ -462,6 +397,291 @@ class _AboutDialog extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ExpandedSidebar extends StatelessWidget {
+  final VoidCallback onCreate;
+  final VoidCallback onToggleCollapse;
+  final Future<void> Function(Project) onConfirmRemove;
+  const _ExpandedSidebar({
+    super.key,
+    required this.onCreate,
+    required this.onToggleCollapse,
+    required this.onConfirmRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    final type = AppTheme.of(context).type;
+    final projects = context.watch<ProjectsProvider>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 44),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          child: Row(
+            children: [
+              Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: t.accent,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(Icons.bolt_outlined,
+                    size: 14, color: Colors.white),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Row(
+                  children: [
+                    Text('LLR',
+                        style: type.bodyStrong
+                            .copyWith(fontWeight: FontWeight.w700)),
+                    Text(' (Lamda Local Runner)',
+                        style: type.caption.copyWith(
+                            fontWeight: FontWeight.w400,
+                            color: t.textMuted,
+                            fontSize: 10)),
+                  ],
+                ),
+              ),
+              _ThemeToggle(),
+              const SizedBox(width: 2),
+              _CollapseButton(
+                collapsed: false,
+                onPressed: onToggleCollapse,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          child: AppButton.primary(
+            icon: Icons.add,
+            label: 'New Project',
+            onPressed: onCreate,
+            expand: true,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          child: Row(
+            children: [
+              Text('PROJECTS', style: type.overline),
+              const Spacer(),
+              Text('${projects.projects.length}',
+                  style: type.overline.copyWith(color: t.textMuted)),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Expanded(
+          child: projects.projects.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Text(
+                    'No projects yet.\nCreate one to get started.',
+                    style: type.caption.copyWith(color: t.textMuted),
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm),
+                  itemCount: projects.projects.length,
+                  itemBuilder: (_, i) {
+                    final pr = projects.projects[i];
+                    final selected = projects.selected?.id == pr.id;
+                    return _ProjectTile(
+                      project: pr,
+                      selected: selected,
+                      onTap: () => projects.select(pr),
+                      onRemove: () => onConfirmRemove(pr),
+                    );
+                  },
+                ),
+        ),
+        Divider(color: t.divider, height: 1),
+        const _SidebarFooter(),
+      ],
+    );
+  }
+}
+
+class _CollapsedSidebar extends StatelessWidget {
+  final VoidCallback onCreate;
+  final VoidCallback onToggleCollapse;
+  const _CollapsedSidebar({
+    super.key,
+    required this.onCreate,
+    required this.onToggleCollapse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    final projects = context.watch<ProjectsProvider>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const SizedBox(height: 44),
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: t.accent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          alignment: Alignment.center,
+          child: const Icon(Icons.bolt_outlined,
+              size: 16, color: Colors.white),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _CollapseButton(collapsed: true, onPressed: onToggleCollapse),
+        const SizedBox(height: AppSpacing.md),
+        Tooltip(
+          message: 'New project',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onCreate,
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: t.accent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.add,
+                  color: Colors.white, size: 18),
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Divider(color: t.divider, indent: 12, endIndent: 12, height: 1),
+        const SizedBox(height: AppSpacing.sm),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            itemCount: projects.projects.length,
+            itemBuilder: (_, i) {
+              final pr = projects.projects[i];
+              final selected = projects.selected?.id == pr.id;
+              return _CollapsedProjectTile(
+                project: pr,
+                selected: selected,
+                onTap: () => projects.select(pr),
+              );
+            },
+          ),
+        ),
+        Divider(color: t.divider, height: 1),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          child: _ThemeToggle(),
+        ),
+      ],
+    );
+  }
+}
+
+class _CollapseButton extends StatelessWidget {
+  final bool collapsed;
+  final VoidCallback onPressed;
+  const _CollapseButton(
+      {required this.collapsed, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    return Tooltip(
+      message: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            collapsed
+                ? Icons.keyboard_double_arrow_right
+                : Icons.keyboard_double_arrow_left,
+            size: 15,
+            color: t.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CollapsedProjectTile extends StatefulWidget {
+  final Project project;
+  final bool selected;
+  final VoidCallback onTap;
+  const _CollapsedProjectTile({
+    required this.project,
+    required this.selected,
+    required this.onTap,
+  });
+  @override
+  State<_CollapsedProjectTile> createState() =>
+      _CollapsedProjectTileState();
+}
+
+class _CollapsedProjectTileState extends State<_CollapsedProjectTile> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTheme.of(context).tokens;
+    Color bg;
+    if (widget.selected) {
+      bg = t.accentSubtle;
+    } else if (_hover) {
+      bg = t.surfaceMuted;
+    } else {
+      bg = Colors.transparent;
+    }
+    return Tooltip(
+      message: widget.project.name +
+          (widget.project.lastBranch != null
+              ? '\n${widget.project.lastBranch}'
+              : ''),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: AppDurations.fast,
+            margin: const EdgeInsets.symmetric(
+                horizontal: 10, vertical: 2),
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.folder_outlined,
+              size: 17,
+              color:
+                  widget.selected ? t.accent : t.textSecondary,
+            ),
+          ),
+        ),
       ),
     );
   }

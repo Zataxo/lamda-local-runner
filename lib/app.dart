@@ -62,6 +62,7 @@ class _Home extends StatefulWidget {
 
 class _HomeState extends State<_Home> {
   bool _creating = false;
+  bool _sidebarCollapsed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +98,12 @@ class _HomeState extends State<_Home> {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Sidebar(onCreate: () => setState(() => _creating = true)),
+          Sidebar(
+            onCreate: () => setState(() => _creating = true),
+            collapsed: _sidebarCollapsed,
+            onToggleCollapse: () => setState(
+                () => _sidebarCollapsed = !_sidebarCollapsed),
+          ),
           Expanded(
             child: AnimatedSwitcher(
               duration: AppDurations.normal,
