@@ -1,7 +1,7 @@
 name: zataxo_pipeline
 description: "Local CI runner for GitHub Actions-style workflows on macOS."
 publish_to: "none"
-version: 1.4.8+8
+version: 1.4.9+10
 
 environment:
   sdk: ^3.9.2

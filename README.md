@@ -1,12 +1,16 @@
-<div align="center">
+<p align="center">
+  <img src="assets/lamda_lr_icon.jpg" alt="Lamda Local Runner Logo" width="128" height="128">
+</p>
 
-# Lamda Local Runner Pipeline
+<h1 align="center">Lamda Local Runner Pipeline</h1>
 
-**Run your GitHub Actions workflows locally on your Mac — no servers, no minutes, no waiting.**
+<p align="center">
+<strong>Run your GitHub Actions workflows locally on your Mac — no servers, no minutes, no waiting.</strong>
+</p>
 
+<p align="center">
 A Flutter macOS desktop app that parses GitHub Actions-style workflow YAML and executes each step in a real shell on your own machine, against any branch of any repo you point it at.
-
-</div>
+</p>
 
 ---
 
@@ -42,94 +46,28 @@ Because it runs on real macOS hardware (not a Linux container), it can build **A
 4. **Run.** The workflow is parsed and executed job-by-job, step-by-step. Each step streams its output live, and you get a clear pass/fail status as it goes.
 5. **Collect artifacts.** Anything an `upload-artifact` step matches is copied into `<project>/_artifacts/`, one click away in Finder.
 
-## What the workflow engine supports
+## Screenshots
 
-The engine executes real GitHub Actions YAML, with a pragmatic scope focused on what a typical build pipeline needs.
+### Dashboard
 
-**Fully supported**
+The main dashboard gives you an at-a-glance view of all your projects, active runs, and recent history.
 
-- **`run:` steps** — executed as `zsh -lc` subprocesses in the repo checkout, honoring `working-directory`, `env`, and `continue-on-error`, with output streamed to the UI line-by-line.
-- **`actions/checkout`** — a no-op, since the repo is already cloned and on your chosen branch.
-- **Flutter setup actions** (`subosito/flutter-action`, `*setup-flutter*`, `*flutter-action*`) — verified against your locally installed Flutter (`flutter --version`).
-- **`actions/upload-artifact`** — reads `with.path` (newline-separated globs, files, or directories) and copies matches into `_artifacts/`.
-- **A minimal set of expressions** — `${{ github.ref_name }}` (current branch), `${{ github.workspace }}` (checkout path), and `${{ github.repository }}`.
+![Dashboard](assets/dashboard.png)
 
-**Not supported (yet)**
+### Workflow Settings
 
-- Third-party `uses:` actions beyond those above — logged as `Unsupported action, skipped: <name>` and passed over.
-- `needs:` dependencies and `strategy.matrix` — noted as unsupported; the job runs once.
-- Full `${{ }}` expression evaluation — anything outside the small set above is left as-is with a warning.
+Configure workflow files — auto-discover `.github/workflows/` YAML files or paste/edit your own directly in the built-in editor.
 
-Every child process runs with an explicit `PATH` (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `/bin`, plus the Flutter SDK `bin`) and a `GITHUB_WORKSPACE` pointing at the repo, so `git`, Homebrew tools, and `flutter` are always found.
+![Workflow Settings](assets/setting-workflow.png)
 
-## Building from source
+### Live Workflow Execution
 
-Requires the [Flutter SDK](https://docs.flutter.dev/get-started/install/macos) with macOS desktop support enabled.
+Watch your workflow run step by step with real-time streaming stdout/stderr, per-step pass/fail indicators, and a collapsible log panel.
 
-```bash
-flutter pub get
-flutter run -d macos      # run in development
-flutter build macos       # release .app → build/macos/Build/Products/Release/
-```
+![Run Workflow](assets/run-workflow.png)
 
-## macOS sandboxing — important
+### Secrets Management
 
-macOS Flutter apps ship **sandboxed** by default, and a sandboxed app can't freely spawn `git`, `zsh`, or `flutter`. Because invoking arbitrary local commands from your workflow is the entire point of this tool, Zataxo Pipeline **intentionally disables App Sandbox** — `com.apple.security.app-sandbox` is removed from both `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`.
+Store encrypted secrets locally on your machine — environment variables are injected into workflow steps just like GitHub's `secrets.*` context.
 
-This is deliberate. It also means the app is **not** distributable through the Mac App Store as-is. Don't re-enable the sandbox unless you move subprocess execution into a privileged helper tool.
-
-> **Note:** This app runs workflow YAML as real shell commands on your machine. Only run workflows from repositories you trust — the same caution you'd apply to running any script you didn't write.
-
-## Project structure
-
-```
-lib/
-  main.dart
-  app.dart
-  models/
-    project.dart
-    run_state.dart
-  services/
-    path_utils.dart        # support dir, projects dir, PATH assembly
-    git_service.dart       # clone / branch / checkout / pull
-    project_storage.dart   # projects.json load/save
-    workflow_runner.dart   # YAML → jobs → steps → subprocess (the engine)
-  state/
-    projects_provider.dart
-    run_provider.dart
-  screens/
-    landing_screen.dart
-    create_project_screen.dart
-    project_screen.dart
-    run_screen.dart
-  widgets/
-    sidebar.dart
-    log_panel.dart
-    status_dot.dart
-macos/Runner/
-  DebugProfile.entitlements  # sandbox removed
-  Release.entitlements       # sandbox removed
-```
-
-Projects persist as JSON at `~/Library/Application Support/zataxo_pipeline/projects.json` (`{ id, name, repoUrl, localPath, lastBranch }`).
-
-## Status colors
-
-| Color      | Meaning |
-| ---------- | ------- |
-| Grey       | Pending |
-| Blue       | Running |
-| Green      | Success |
-| Red        | Failed  |
-| Light grey | Skipped |
-
-## Roadmap
-
-- `needs:` job dependencies and `strategy.matrix`
-- Broader `${{ }}` expression evaluation and `secrets` support
-- A wider library of built-in `uses:` actions
-- Run history and re-run
-
-## License
-
-Add your license of choice here (e.g. MIT).
+![Manage Secrets](assets/manage-secrets.png)

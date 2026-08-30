@@ -128,17 +128,24 @@ class _HomeState extends State<_Home> {
         onBack: _goDashboard,
       );
     } else if (selected == null) {
-      main = DashboardScreen(
-        onCreate: () => setState(() => _creating = true),
-        onOpenSecrets: () => _openSecrets(),
-        onOpenProject: _openProject,
-        onQuickRun: _openProject,
+      // main = DashboardScreen(
+      //   onCreate: () => setState(() => _creating = true),
+      //   onOpenSecrets: () => _openSecrets(),
+      //   onOpenProject: _openProject,
+      //   onQuickRun: _openProject,
+      // );
+      main = SizedBox(
+        // color: Colors.tealAccent,
+        height: MediaQuery.of(context).size.height - kBottomNavigationBarHeight,
+        child: DashboardScreen(
+          onCreate: () => setState(() => _creating = true),
+          onOpenSecrets: () => _openSecrets(),
+          onOpenProject: _openProject,
+          onQuickRun: _openProject,
+        ),
       );
     } else {
-      main = ProjectScreen(
-        key: ValueKey(selected.id),
-        project: selected,
-      );
+      main = ProjectScreen(key: ValueKey(selected.id), project: selected);
     }
 
     String keyFor() {
@@ -163,8 +170,8 @@ class _HomeState extends State<_Home> {
                     _showSecrets = false;
                   }),
                   collapsed: _sidebarCollapsed,
-                  onToggleCollapse: () => setState(
-                      () => _sidebarCollapsed = !_sidebarCollapsed),
+                  onToggleCollapse: () =>
+                      setState(() => _sidebarCollapsed = !_sidebarCollapsed),
                   dashboardSelected: dashboardSelected,
                   onDashboard: _goDashboard,
                   secretsSelected: secretsSelected,
@@ -175,10 +182,7 @@ class _HomeState extends State<_Home> {
                     duration: AppDurations.normal,
                     switchInCurve: Curves.easeOut,
                     switchOutCurve: Curves.easeIn,
-                    child: KeyedSubtree(
-                      key: ValueKey(keyFor()),
-                      child: main,
-                    ),
+                    child: KeyedSubtree(key: ValueKey(keyFor()), child: main),
                   ),
                 ),
               ],
